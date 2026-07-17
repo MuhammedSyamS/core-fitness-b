@@ -1,86 +1,144 @@
-// server/controllers/reviewController.js
-const Review = require('../models/Review');
+const Review = require("../models/Review");
 
-const RATING_FIELDS = ['coachRating', 'atmosphereRating', 'equipmentRating', 'cleanlinessRating'];
+// ==============================
+// Create Review
+// ==============================
+const createReview = async (req, res) => {
+    try {
+        let { username, phone, comment } = req.body;
 
-// GET /api/reviews
-exports.getReviews = async (req, res) => {
-  try {
-    const reviews = await Review.find().sort({ createdAt: -1 }).lean();
-    res.status(200).json({ success: true, data: reviews });
-  } catch (error) {
-    res.status(500).json({ success: false, message: 'Could not load reviews.' });
-  }
+        // Validate input
+        if (!username || !phone || !comment) {
+            return res.status(400).json({
+                success: false,
+                message: "Username, phone number, and comment are required."
+            });
+        }
+
+        // Clean phone number
+        const cleanPhone = phone.toString().replace(/\D/g, "").trim();
+
+        // Find latest review from this phone
+        const lastReview = await Review.findOne({
+            phone: cleanPhone,
+        }).sort({ createdAt: -1 });
+
+        if (lastReview) {
+            const sevenDays = 7 * 24 * 60 * 60 * 1000;
+            const timePassed = Date.now() - new Date(lastReview.createdAt).getTime();
+
+            if (timePassed < sevenDays) {
+                const daysLeft = Math.ceil((sevenDays - timePassed) / (24 * 60 * 60 * 1000));
+
+                return res.status(429).json({
+                    success: false,
+                    message: `You have already submitted a review. Please try again in ${daysLeft} day(s).`
+                });
+            }
+        }
+
+        // Save review
+        const newReview = await Review.create({
+            username,
+            phone: cleanPhone,
+            comment,
+            ...req.body
+        });
+
+        return res.status(201).json({
+            success: true,
+            message: "Review submitted successfully.",
+            data: newReview,
+        });
+
+    } catch (err) {
+        return res.status(500).json({
+            success: false,
+            message: err.message,
+        });
+    }
 };
 
-// POST /api/reviews
-exports.createReview = async (req, res) => {
-  try {
-    // EMERGENCY BYPASS: Force safe fallback values if optional entries arrive blank/missing
-    if (!req.body.comment || !req.body.comment.trim()) {
-      req.body.comment = ' '; 
+// ==============================
+// Get All Reviews
+// ==============================
+const getReviews = async (req, res) => {
+    try {
+        const reviews = await Review.find().sort({ createdAt: -1 });
+
+        return res.status(200).json({
+            success: true,
+            count: reviews.length,
+            data: reviews,
+        });
+
+    } catch (err) {
+        return res.status(500).json({
+            success: false,
+            message: err.message,
+        });
     }
-    if (!req.body.phone) {
-      req.body.phone = '';
+};
+
+// ==============================
+// Admin Login
+// ==============================
+const adminLogin = (req, res) => {
+    const { key } = req.body;
+
+    if (!key) {
+        return res.status(400).json({
+            success: false,
+            message: "Admin key is required.",
+        });
     }
 
-    const { username } = req.body;
-
-    // Strict validation constraint is active ONLY for the name block
-    if (!username || !username.trim()) {
-      return res.status(400).json({ success: false, message: 'Name is required.' });
+    if (key === process.env.ADMIN_KEY) {
+        return res.status(200).json({
+            success: true,
+            message: "Login successful.",
+        });
     }
 
-    for (const field of RATING_FIELDS) {
-      const value = Number(req.body[field]);
-      if (!Number.isFinite(value) || value < 1 || value > 5) {
-        return res.status(400).json({ success: false, message: `${field} must be between 1 and 5.` });
-      }
-    }
-
-    const newReview = await Review.create({
-      username: username.trim(),
-      phone: String(req.body.phone).trim(),
-      comment: String(req.body.comment).trim(),
-      coachRating: Number(req.body.coachRating),
-      atmosphereRating: Number(req.body.atmosphereRating),
-      equipmentRating: Number(req.body.equipmentRating),
-      cleanlinessRating: Number(req.body.cleanlinessRating),
+    return res.status(401).json({
+        success: false,
+        message: "Invalid admin key.",
     });
-
-    res.status(201).json({ success: true, data: newReview });
-  } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
-  }
 };
 
-// POST /api/reviews/admin/login
-exports.adminLogin = (req, res) => {
-  const { key } = req.body;
-  const cleanUserKey = key ? String(key).trim() : '';
-  const strictTargetKey = 'Corefitness@HighP';
+// ==============================
+// Delete Review
+// ==============================
+const deleteReview = async (req, res) => {
+    try {
+        const review = await Review.findByIdAndDelete(req.params.id);
 
-  // DIRECT CHECK: Bypasses Render dashboards to look directly for your password string
-  if (cleanUserKey === strictTargetKey) {
-    return res.status(200).json({ success: true, message: 'Authenticated' });
-  }
-  res.status(401).json({ success: false, message: 'Invalid secret credentials token.' });
+        if (!review) {
+            return res.status(404).json({
+                success: false,
+                message: "Review not found.",
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Review deleted successfully.",
+        });
+
+    } catch (err) {
+        return res.status(500).json({
+            success: false,
+            message: err.message,
+        });
+    }
 };
 
-// DELETE /api/reviews/admin/delete/:id
-exports.deleteReview = async (req, res) => {
-  const clientKey = req.headers['admin-key'];
-  const cleanClientKey = clientKey ? String(clientKey).trim() : '';
-  const strictTargetKey = 'Corefitness@HighP';
-
-  if (cleanClientKey !== strictTargetKey) {
-    return res.status(403).json({ success: false, message: 'Unauthorized access.' });
-  }
-
-  try {
-    await Review.findByIdAndDelete(req.params.id);
-    res.status(200).json({ success: true, message: 'Review deleted successfully.' });
-  } catch (error) {
-    res.status(500).json({ success: false, message: 'Deletion failed.' });
-  }
+// ==============================
+// Export
+// ==============================
+module.exports = {
+    createReview,
+    getReviews,
+    adminLogin,
+    deleteReview,
 };
