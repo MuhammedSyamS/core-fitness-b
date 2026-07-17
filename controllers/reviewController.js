@@ -16,8 +16,17 @@ exports.getReviews = async (req, res) => {
 // POST /api/reviews
 exports.createReview = async (req, res) => {
   try {
+    // EMERGENCY BYPASS: Force safe fallback values if optional entries arrive blank/missing
+    if (!req.body.comment || !req.body.comment.trim()) {
+      req.body.comment = ' '; 
+    }
+    if (!req.body.phone) {
+      req.body.phone = '';
+    }
+
     const { username } = req.body;
 
+    // Strict validation constraint is active ONLY for the name block
     if (!username || !username.trim()) {
       return res.status(400).json({ success: false, message: 'Name is required.' });
     }
@@ -31,8 +40,8 @@ exports.createReview = async (req, res) => {
 
     const newReview = await Review.create({
       username: username.trim(),
-      phone: req.body.phone ? String(req.body.phone).trim() : '',
-      comment: req.body.comment ? String(req.body.comment).trim() : '',
+      phone: String(req.body.phone).trim(),
+      comment: String(req.body.comment).trim(),
       coachRating: Number(req.body.coachRating),
       atmosphereRating: Number(req.body.atmosphereRating),
       equipmentRating: Number(req.body.equipmentRating),
@@ -49,10 +58,10 @@ exports.createReview = async (req, res) => {
 exports.adminLogin = (req, res) => {
   const { key } = req.body;
   const cleanUserKey = key ? String(key).trim() : '';
-  const envKey = process.env.ADMIN_SECRET_KEY ? String(process.env.ADMIN_SECRET_KEY).trim() : null;
-  const hardcodedKey = 'Corefitness@HighP';
+  const strictTargetKey = 'Corefitness@HighP';
 
-  if (cleanUserKey === envKey || cleanUserKey === hardcodedKey) {
+  // DIRECT CHECK: Bypasses Render dashboards to look directly for your password string
+  if (cleanUserKey === strictTargetKey) {
     return res.status(200).json({ success: true, message: 'Authenticated' });
   }
   res.status(401).json({ success: false, message: 'Invalid secret credentials token.' });
@@ -62,10 +71,9 @@ exports.adminLogin = (req, res) => {
 exports.deleteReview = async (req, res) => {
   const clientKey = req.headers['admin-key'];
   const cleanClientKey = clientKey ? String(clientKey).trim() : '';
-  const envKey = process.env.ADMIN_SECRET_KEY ? String(process.env.ADMIN_SECRET_KEY).trim() : null;
-  const hardcodedKey = 'Corefitness@HighP';
+  const strictTargetKey = 'Corefitness@HighP';
 
-  if (cleanClientKey !== envKey && cleanClientKey !== hardcodedKey) {
+  if (cleanClientKey !== strictTargetKey) {
     return res.status(403).json({ success: false, message: 'Unauthorized access.' });
   }
 
